@@ -1,0 +1,184 @@
+LOAD DATASET
+```{r}
+customer <- read.csv("/Users/andi.ashari/Documents/School/Semester4/DataMining/LabAssignment/nomor2/WA_Fn-UseC_-Telco-Customer-Churn.csv")
+```
+IMPORT LIBRARIES
+```{r}
+install.packages("ggcorrplot")
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(scales)
+library(tidyr)
+library(corrplot)
+library(scales)
+library(skimr)
+library(tidyverse)
+library(ggcorrplot)
+library(gridExtra)
+
+# Predictive Model libraries
+library(caret)
+library(randomForest)
+library(e1071)
+```
+
+DATA EXPLORATORY
+```{r}
+head(customer, 2)
+```
+```{r}
+str(customer) # Shows the structure of the dataset (column names, data types)
+```
+```{r}
+skim(customer) # Provides advanced summary statistics for each variable in the dataset
+```
+THERE ARE 11 MISSING VALUES IN TotalCharges VARIABLE, LETS CLEAN IT.
+
+
+```{r}
+customer_clean <- na.omit(customer)
+```
+```{r}
+customer_clean <- na.omit(customer)
+colSums(is.na(customer_clean))
+```
+NOW THE DATASET IS CLEANED, LETS CHECK THE UNIQUE VALUE THAT CONTAINED ON THE DATASET
+```{r}
+unique_vals <- sapply(customer_clean[, c("gender", "SeniorCitizen", "Partner", "Dependents",
+                                   "PhoneService", "MultipleLines", "InternetService",
+                                   "OnlineSecurity", "OnlineBackup", "DeviceProtection",
+                                   "TechSupport", "StreamingTV", "StreamingMovies",
+                                   "Contract", "PaperlessBilling", "PaymentMethod",
+                                   "Churn")], unique)
+print(unique_vals)
+```
+GENDER DISTRIBUTION
+```{r}
+# Group the data by gender, calculate the count and percentage, and create a bar plot
+gender_counts <- customer_clean %>%
+  group_by(gender) %>%
+  summarize(count = n()) %>%
+  mutate(percentage = count/sum(count) * 100)
+```
+```{r}
+gender_plot <- ggplot(gender_counts, aes(x = gender, y = count, fill = gender)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = count), vjust = -0.5, color = "black", size = 3) +
+  labs(x = "Gender", y = "Count", title = "Gender Distribution") +
+  theme_minimal()
+
+gender_plot
+```
+CHURN DISTRIBUTION
+```{r}
+# Group the data by churn, calculate the count and percentage, and create a bar plot
+churn_counts <- customer_clean %>%
+  group_by(Churn) %>%
+  summarize(count = n()) %>%
+  mutate(percentage = count/sum(count) * 100)
+```
+```{r}
+churn_plot <- ggplot(churn_counts, aes(x = Churn, y = count, fill = Churn)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = count), vjust = -0.5, color = "black", size = 3) +
+  labs(x = "Churn", y = "Count", title = "Churn Distribution") +
+  theme_minimal()
+
+churn_plot
+```
+THERE ARE 5,163 ACTIVE CUSTOMERS
+```{r}
+# now lets check the difference of "no" annd "yes" customer churns
+churn_count <- sum(customer_clean$Churn == "Yes")
+non_churn_count <- sum(customer_clean$Churn == "No")
+diff <-  non_churn_count - churn_count
+percentage_diff <- (diff / non_churn_count) * 100
+```
+```{r}
+cat("Difference between churn and non-churn count:", diff, "\n")
+```
+```{r}
+cat("Percentage difference of churn:", percentage_diff, "%")
+```
+HENCE, THE DIFFERENCE OF ACTIVE CUSTOMER AND NON-ACTIVE CUSTOMER IS: 63.8%
+
+MONTHLY CHARGE DISTRIBUTION
+```{r}
+monthly_charges_plot <- ggplot(customer_clean, aes(x = MonthlyCharges)) +
+  geom_histogram(binwidth = 10, fill = "#69b3a2", color = "black") +
+  labs(x = "Monthly Charges", y = "Count", title = "Monthly Charges Distribution") +
+  theme_minimal()
+
+monthly_charges_plot
+
+```
+HEATMAP CORRELATION
+```{r}
+# Compute the correlation matrix and create a heatmap of the correlations
+correlation_matrix <- cor(customer_clean[, c("SeniorCitizen", "tenure", "MonthlyCharges", "TotalCharges")])
+correlation_heatmap <- ggcorrplot(correlation_matrix, type = "lower", lab = TRUE)
+
+correlation_heatmap
+```
+
+
+PREDICTIVE MODEL - CUSTOMER CHURN
+---------------------------------
+
+FIRST, WE CONVERT THE CHURN VARIABLE TO FACTOR
+```{r}
+customer_clean$Churn <- as.factor(customer_clean$Churn)
+```
+
+DATA SPLIT
+```{r}
+set.seed(123) # Set a seed for reproducibility
+train_index <- createDataPartition(customer_clean$Churn, p = 0.7, list = FALSE) # Create an index for data partitioning
+train_data <- customer_clean[train_index, ] # Create the training set using the index
+test_data <- customer_clean[-train_index, ] # Create the testing set using the remaining data
+```
+
+DEFINING THE PREDICTOR ANND TAGRET VARIABLE
+```{r}
+predictors <- c("gender", "SeniorCitizen", "Partner", "Dependents", "tenure",
+                "PhoneService", "MultipleLines", "InternetService", "OnlineSecurity",
+                "OnlineBackup", "DeviceProtection", "TechSupport", "StreamingTV",
+                "StreamingMovies", "Contract", "PaperlessBilling", "PaymentMethod",
+                "MonthlyCharges", "TotalCharges")
+target <- "Churn"
+```
+ASSIGN A RANDOM FORREST MODEL:
+
+    Random Forest model is chosen for its high accuracy and ability to handle high-dimensional data, making it suitable for     predicting customer churn in complex datasets.
+```{r}
+model <- randomForest(formula = Churn ~ ., data = train_data[, c(predictors, target)])
+# Train a Random Forest model
+# The formula specifies the relationship between predictors and the target variable, using all available predictors
+```
+CREATE PREDICTION ON THE TEST SET
+```{r}
+predictions <- predict(model, newdata = test_data[, predictors]) # Use the trained model to predict churn for the test set
+```
+EVALUATING THE PERFORRMANCE
+```{r}
+confusion_matrix <- table(predictions, test_data$Churn) # Create a confusion matrix to evaluate predictions
+accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix) # Calculate the accuracy using the confusion matrix
+recall <- confusion_matrix["Yes", "Yes"] / sum(confusion_matrix["Yes", ]) # Create a Recall variable to measures the model's ability to correctly identify positive instances out of all the actual positive instances.
+```
+PRINT THE RESULT
+```{r}
+print(confusion_matrix)
+```
+```{r}
+print(paste0("Accuracy: ", round(accuracy * 100, 2), "%"))
+```
+```{r}
+print(paste0("Recall: ", round(recall *100, 2), "%"))
+```
+
+
+
+
